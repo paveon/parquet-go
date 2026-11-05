@@ -139,7 +139,7 @@ func NewGenericWriter[T any](output io.Writer, options ...WriterOption) *Generic
 		// deconstruct each value of type T into a Row first.
 		// This is less efficient but still type-safe.
 		_, writeValue := writeValueFuncOf(0, config.Schema)
-		writeFn = makeWriteFunc[T](t, func(columns []ColumnBuffer, levels columnLevels, rows sparse.Array) {
+		writeRows := func(columns []ColumnBuffer, levels columnLevels, rows sparse.Array) {
 			if rows.Len() == 0 {
 				writeValue(columns, levels, reflect.Value{})
 				return
@@ -148,7 +148,12 @@ func NewGenericWriter[T any](output io.Writer, options ...WriterOption) *Generic
 				v := reflect.ValueOf((*T)(rows.Index(i))).Elem()
 				writeValue(columns, levels, v)
 			}
-		})
+		}
+		if t == nil {
+			// T is an interface type, such as any.
+			writeRows = writeRowsFuncOfDynamicType[T](config.Schema, config.SchemaConfig.StructTags, writeRows)
+		}
+		writeFn = makeWriteFunc[T](t, writeRows)
 	}
 
 	return &GenericWriter[T]{
