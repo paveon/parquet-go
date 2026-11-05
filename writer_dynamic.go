@@ -2,6 +2,7 @@ package parquet
 
 import (
 	"reflect"
+	"time"
 	"unsafe"
 
 	"github.com/parquet-go/parquet-go/sparse"
@@ -66,8 +67,50 @@ func writeRowsFuncOfStructPointer(t reflect.Type, schema *Schema, tagReplacement
 	if _, ok := validateColumns(t.Elem()); !ok {
 		return nil
 	}
+	if hasDuplicateColumns(t, nil, tagReplacements, map[reflect.Type]bool{}) {
+		return nil
+	}
 	if !EqualNodes(schema, schemaOf(t.Elem(), tagReplacements...)) {
 		return nil
 	}
 	return writeRowsFuncOf(t, schema, nil, tagReplacements)
+}
+
+// hasDuplicateColumns reports whether a struct reachable from t has fields of
+// the same column name, such as a field and the field of an embedded struct
+// that it shadows. The functions generated for a type write every one of them
+// to the column, where reflection writes only the one visible from Go, so rows
+// of such types are left to reflection. visiting holds the struct types being
+// checked, so that recursive types are checked once.
+func hasDuplicateColumns(t reflect.Type, path columnPath, tagReplacements []StructTagOption, visiting map[reflect.Type]bool) bool {
+	for t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Array {
+		t = t.Elem()
+	}
+	switch {
+	case t.Kind() == reflect.Map:
+		return hasDuplicateColumns(t.Key(), path, tagReplacements, visiting) ||
+			hasDuplicateColumns(t.Elem(), path, tagReplacements, visiting)
+	case t.Kind() != reflect.Struct, t == reflect.TypeFor[time.Time](), visiting[t]:
+		return false
+	}
+	visiting[t] = true
+	defer delete(visiting, t)
+
+	names := make(map[string]bool)
+	for _, f := range structFieldsOf(path, t, tagReplacements) {
+		if names[f.Name] {
+			return true
+		}
+		names[f.Name] = true
+		fieldPath := path.append(f.Name)
+		forEachStructTagOption(f, func(_ reflect.Type, option, _ string) {
+			if option == "list" {
+				fieldPath = fieldPath.append("list", "element")
+			}
+		})
+		if hasDuplicateColumns(f.Type, fieldPath, tagReplacements, visiting) {
+			return true
+		}
+	}
+	return false
 }

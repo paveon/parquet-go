@@ -127,6 +127,7 @@ func TestGenericWriterAnyTypesWithoutFastPath(t *testing.T) {
 	schema := SchemaOf(new(dynamicRow))
 
 	type sameColumns dynamicRow
+	shadowed := make([]any, len(rows))
 	values := make([]any, len(rows))
 	mixed := make([]any, len(rows))
 	for i, r := range rows {
@@ -135,6 +136,7 @@ func TestGenericWriterAnyTypesWithoutFastPath(t *testing.T) {
 		if i%2 == 1 {
 			mixed[i] = (*sameColumns)(r)
 		}
+		shadowed[i] = &shadowing{dynamicRow: dynamicRow{ID: r.ID, Count: -1}, Count: r.Count}
 	}
 
 	tests := []struct {
@@ -151,6 +153,35 @@ func TestGenericWriterAnyTypesWithoutFastPath(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("shadowed fields", func(t *testing.T) {
+		data := write(t, shadowed, 8, SchemaOf(new(shadowing)))
+		got, err := Read[dynamicRow](bytes.NewReader(data), int64(len(data)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != len(rows) {
+			t.Fatalf("read %d rows, want %d", len(got), len(rows))
+		}
+		for i, r := range got {
+			if r.Count != rows[i].Count {
+				t.Errorf("row %d: count = %d, want the shadowing field's %d", i, r.Count, rows[i].Count)
+			}
+		}
+	})
+}
+
+// shadowing has a field that shadows the field of an embedded struct of the
+// same column.
+type shadowing struct {
+	dynamicRow
+	Count int64 `parquet:"count"`
+}
+
+// shadowingList has structs with a shadowed field in a list.
+type shadowingList struct {
+	ID       string      `parquet:"id"`
+	Elements []shadowing `parquet:"elements,list"`
 }
 
 func TestWriteRowsFuncOfStructPointer(t *testing.T) {
@@ -174,6 +205,8 @@ func TestWriteRowsFuncOfStructPointer(t *testing.T) {
 		{name: "struct value", t: reflect.TypeFor[dynamicRow](), schema: schema},
 		{name: "pointer to struct of another schema", t: reflect.TypeFor[*otherSchema](), schema: schema},
 		{name: "pointer to non-struct", t: reflect.TypeFor[*int64](), schema: schema},
+		{name: "shadowed field", t: reflect.TypeFor[*shadowing](), schema: SchemaOf(new(shadowing))},
+		{name: "shadowed field of a list element", t: reflect.TypeFor[*shadowingList](), schema: SchemaOf(new(shadowingList))},
 		{name: "nil", t: nil, schema: schema},
 	}
 	for _, test := range tests {
