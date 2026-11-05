@@ -70,10 +70,21 @@ func writeRowsFuncOfStructPointer(t reflect.Type, schema *Schema, tagReplacement
 	if hasDuplicateColumns(t, nil, tagReplacements, map[reflect.Type]bool{}) {
 		return nil
 	}
-	if !EqualNodes(schema, schemaOf(t.Elem(), tagReplacements...)) {
+	if !hasSchema(t.Elem(), schema, tagReplacements) {
 		return nil
 	}
 	return writeRowsFuncOf(t, schema, nil, tagReplacements)
+}
+
+// hasSchema reports whether t is a struct whose schema is schema. A type that
+// has no schema, such as one of a field of a channel type, panics in schemaOf.
+func hasSchema(t reflect.Type, schema *Schema, tagReplacements []StructTagOption) (ok bool) {
+	defer func() {
+		if recover() != nil {
+			ok = false
+		}
+	}()
+	return EqualNodes(schema, schemaOf(t, tagReplacements...))
 }
 
 // hasDuplicateColumns reports whether a struct reachable from t has fields of

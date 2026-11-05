@@ -191,6 +191,10 @@ func TestWriteRowsFuncOfStructPointer(t *testing.T) {
 	type otherSchema struct {
 		ID string `parquet:"id"`
 	}
+	type noSchema struct {
+		ID      string   `parquet:"id"`
+		Channel chan int `parquet:"channel"`
+	}
 	tests := []struct {
 		name   string
 		t      reflect.Type
@@ -204,6 +208,7 @@ func TestWriteRowsFuncOfStructPointer(t *testing.T) {
 		{name: "struct tag options missing", t: reflect.TypeFor[*dynamicRow](), schema: retagged},
 		{name: "struct value", t: reflect.TypeFor[dynamicRow](), schema: schema},
 		{name: "pointer to struct of another schema", t: reflect.TypeFor[*otherSchema](), schema: schema},
+		{name: "pointer to struct without a schema", t: reflect.TypeFor[*noSchema](), schema: schema},
 		{name: "pointer to non-struct", t: reflect.TypeFor[*int64](), schema: schema},
 		{name: "shadowed field", t: reflect.TypeFor[*shadowing](), schema: SchemaOf(new(shadowing))},
 		{name: "shadowed field of a list element", t: reflect.TypeFor[*shadowingList](), schema: SchemaOf(new(shadowingList))},
